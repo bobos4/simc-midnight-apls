@@ -1,0 +1,56 @@
+name: Sync SimulationCraft Midnight APLs
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-simulationcraft-midnight-apls
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out mirror
+        uses: actions/checkout@v4
+
+      - name: Synchronize APL files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_dir="$(mktemp -d)"
+          trap 'rm -rf "$source_dir"' EXIT
+
+          git clone \
+            --branch midnight \
+            --single-branch \
+            --depth 1 \
+            --filter=blob:none \
+            --sparse \
+            --no-tags \
+            https://github.com/simulationcraft/simc.git \
+            "$source_dir/simc"
+
+          git -C "$source_dir/simc" sparse-checkout set ActionPriorityLists/default
+          source_sha="$(git -C "$source_dir/simc" rev-parse --short=12 HEAD)"
+
+          find . -maxdepth 1 -type f -name '*.simc' -delete
+          cp "$source_dir/simc/ActionPriorityLists/default/"*.simc .
+
+          git add -A -- '*.simc'
+          if git diff --cached --quiet; then
+            echo "No APL changes detected."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync SimulationCraft Midnight APLs ($source_sha)"
+          git push
